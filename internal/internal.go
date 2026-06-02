@@ -118,6 +118,20 @@ func startReadingEvents(ctx context.Context) error {
 			return false, errors.Wrap(err, "error in DrainNode")
 		}
 
+		// signal Azure that pre-termination work is complete so it can proceed
+		// immediately rather than waiting for the full notBeforeTimeout window
+		if *config.Get().AcknowledgeEvent {
+			if err := events.AcknowledgeEvent(ctx, *config.Get().Endpoint, event.EventId); err != nil {
+				metrics.AcknowledgeEventTotal.WithLabelValues(*config.Get().NodeName, "failure").Inc()
+
+				log.WithError(err).Warn("failed to acknowledge event; Azure will terminate after notBeforeTimeout")
+			} else {
+				metrics.AcknowledgeEventTotal.WithLabelValues(*config.Get().NodeName, "success").Inc()
+
+				log.Infof("Acknowledged event %s; Azure can proceed with termination immediately", event.EventId)
+			}
+		}
+
 		return true, nil
 	}
 

@@ -258,6 +258,10 @@ annotations:
   prometheus.io/scrape: "true"
 ```
 
+## Early termination acknowledgement
+
+After a node is drained the handler POSTs a `StartRequest` to the IMDS scheduled events endpoint, telling Azure it can proceed with the VM termination immediately instead of waiting for the full `notBeforeTimeout` window (up to 15 minutes). This is enabled by default; use the flag `-acknowledgeEvent=false` to disable. Acknowledgement attempts are counted by the `acknowledge_event_total` Prometheus metric, labelled by result.
+
 ## Windows 2019 support
 
 If your cluster has (Linux and Windows 2019 nodes), you need to use another image:

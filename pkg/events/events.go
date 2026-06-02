@@ -13,6 +13,7 @@ limitations under the License.
 package events
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -184,4 +185,53 @@ func (r *Reader) String() string {
 	b, _ := json.Marshal(r) //nolint:errchkjson
 
 	return string(b)
+}
+
+type acknowledgeStartRequest struct {
+	EventID string `json:"EventId"`
+}
+
+type acknowledgeBody struct {
+	StartRequests []acknowledgeStartRequest `json:"StartRequests"`
+}
+
+// AcknowledgeEvent sends a StartRequest to the Azure IMDS scheduled events
+// endpoint, signalling that the node has completed its pre-termination work.
+// Azure will proceed with the termination immediately instead of waiting for
+// the configured notBeforeTimeout to expire.
+//
+// Per the Scheduled Events API this applies to user-initiated events
+// (Reboot, Redeploy, Terminate, Preempt). Freeze events (host maintenance)
+// do not support early acknowledgement; the request will be ignored.
+func AcknowledgeEvent(ctx context.Context, endpoint string, eventID string) error {
+	body, err := json.Marshal(acknowledgeBody{
+		StartRequests: []acknowledgeStartRequest{{EventID: eventID}},
+	})
+	if err != nil {
+		return errors.Wrap(err, "error marshalling acknowledge body")
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, requestTimeout)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+	if err != nil {
+		return errors.Wrap(err, "error creating acknowledge request")
+	}
+
+	req.Header.Set("Metadata", "true")
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return errors.Wrap(err, "error sending acknowledge request")
+	}
+
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return errors.Errorf("unexpected status %d acknowledging event %s", resp.StatusCode, eventID)
+	}
+
+	return nil
 }

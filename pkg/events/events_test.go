@@ -16,6 +16,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -68,6 +69,31 @@ func TestReadingEvents(t *testing.T) { //nolint:funlen
 
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write(message)
+	})
+
+	type acknowledgeRequest struct {
+		method      string
+		metadata    string
+		contentType string
+		body        string
+	}
+
+	acknowledgeRequests := make(chan acknowledgeRequest, 1)
+
+	handler.HandleFunc("/acknowledge", func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		acknowledgeRequests <- acknowledgeRequest{
+			method:      r.Method,
+			metadata:    r.Header.Get("Metadata"),
+			contentType: r.Header.Get("Content-Type"),
+			body:        string(body),
+		}
+
+		w.WriteHeader(http.StatusOK)
+	})
+
+	handler.HandleFunc("/internalerror", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
 	})
 
 	testServer := httptest.NewServer(handler)
@@ -131,6 +157,61 @@ func TestReadingEvents(t *testing.T) { //nolint:funlen
 
 		if _, err := eventReader.ReadEndpoint(ctx); !errors.Is(err, context.DeadlineExceeded) {
 			t.Error(err)
+		}
+	})
+
+	t.Run("acknowledge", func(t *testing.T) {
+		t.Parallel()
+
+		if err := events.AcknowledgeEvent(ctx, testServer.URL+"/acknowledge", "test-event-id"); err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+
+		select {
+		case req := <-acknowledgeRequests:
+			if req.method != http.MethodPost {
+				t.Errorf("expected POST, got %s", req.method)
+			}
+
+			if req.metadata != "true" {
+				t.Errorf("expected Metadata header 'true', got %q", req.metadata)
+			}
+
+			if req.contentType != "application/json" {
+				t.Errorf("expected Content-Type 'application/json', got %q", req.contentType)
+			}
+
+			var parsed struct {
+				StartRequests []struct {
+					EventID string `json:"EventId"`
+				} `json:"StartRequests"`
+			}
+
+			if err := json.Unmarshal([]byte(req.body), &parsed); err != nil {
+				t.Fatalf("body is not valid JSON: %v (body: %s)", err, req.body)
+			}
+
+			if len(parsed.StartRequests) != 1 || parsed.StartRequests[0].EventID != "test-event-id" {
+				t.Errorf("unexpected parsed body: %+v", parsed)
+			}
+		case <-time.After(2 * time.Second):
+			t.Error("timed out waiting for acknowledge request")
+		}
+	})
+
+	t.Run("acknowledge_badstatus", func(t *testing.T) {
+		t.Parallel()
+
+		if err := events.AcknowledgeEvent(ctx, testServer.URL+"/internalerror", "test-event-id"); err == nil {
+			t.Error("expected error for non-200 response")
+		}
+	})
+
+	t.Run("acknowledge_badurl", func(t *testing.T) {
+		t.Parallel()
+
+		if err := events.AcknowledgeEvent(ctx, "fake://invalid", "test-event-id"); err == nil {
+			t.Error("expected error for bad url")
 		}
 	})
 

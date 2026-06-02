@@ -81,6 +81,7 @@ type Type struct {
 	ResourceName           *string
 	ExitAfterNodeDrain     *bool
 	DisableEviction        *bool
+	AcknowledgeEvent       *bool
 }
 
 var config = Type{
@@ -116,6 +117,7 @@ var config = Type{
 	ExitAfterNodeDrain:     flag.Bool("exitAfterNodeDrain", false, "process will exit after node drain"),
 	DisableEviction:        flag.Bool("disableEviction", false, "if true, force drain to use delete, even if eviction is supported. This will bypass checking PodDisruptionBudgets"),
 	DryRun:                 flag.Bool("dryRun", defaultDryRun, "if true, nodes will not be tainted, cordoned, or drained"),
+	AcknowledgeEvent:       flag.Bool("acknowledgeEvent", true, "send StartRequest to Azure IMDS after drain to allow early termination; set false to always wait for the full notBeforeTimeout"),
 }
 
 func (t *Type) GracePeriod() time.Duration {

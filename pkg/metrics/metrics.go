@@ -142,6 +142,15 @@ var ScheduledEventsTotal = promauto.NewCounterVec(
 	[]string{"node", "resource", "type"},
 )
 
+var AcknowledgeEventTotal = promauto.NewCounterVec(
+	prometheus.CounterOpts{
+		Namespace: namespace,
+		Name:      "acknowledge_event_total",
+		Help:      "Acknowledge requests sent to Azure IMDS after drain",
+	},
+	[]string{"node", "result"},
+)
+
 var KubernetesAPIRequest = promauto.NewCounterVec(prometheus.CounterOpts{
 	Namespace: namespace,
 	Name:      "apiserver_request_total",
